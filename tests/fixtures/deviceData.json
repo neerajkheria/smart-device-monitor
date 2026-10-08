@@ -1,0 +1,17 @@
+[
+  {
+    "name": "Thermal Sensor Tank 01",
+    "type": "THERMAL_SENSOR",
+    "location": "REFINERY-SECTION-B"
+  },
+  {
+    "name": "Hydraulic Pressure Valve 4A",
+    "type": "PRESSURE_VALVE",
+    "location": "PUMP-HOUSE-NORTH"
+  },
+  {
+    "name": "Edge Gateway Primary",
+    "type": "GATEWAY",
+    "location": "CONTROL-ROOM-1"
+  }
+]

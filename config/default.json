@@ -1,0 +1,15 @@
+{
+  "server": {
+    "port": 3000,
+    "env": "development"
+  },
+  "monitoring": {
+    "telemetryIntervalMs": 5000,
+    "voltageMinThreshold": 2.7,
+    "temperatureMaxThreshold": 60.0,
+    "psiMaxThreshold": 120.0
+  },
+  "logging": {
+    "level": "info"
+  }
+}
