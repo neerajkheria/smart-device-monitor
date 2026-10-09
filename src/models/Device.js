@@ -4,7 +4,7 @@ class Device {
     this.name = name;
     this.type = type; // THERMAL_SENSOR, PRESSURE_VALVE, GATEWAY
     this.location = location;
-    this.status = status; // ACTIVE, STANDBY, ERROR, MAINTENANCE
+    this.status = status; // ACTIVE, STANDBY, ERROR, MAINTENANCE, CRITICAL
     this.registeredAt = new Date().toISOString();
     // Integer 0–100. Stays 100 until the first voltage sample, then the
     // service recomputes it from voltageHistory.

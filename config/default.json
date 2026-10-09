@@ -4,8 +4,12 @@
     "env": "development"
   },
   "monitoring": {
-    "telemetryIntervalMs": 5000,
+    "telemetryIntervalMs": 60000,
     "voltageMinThreshold": 2.7,
+    "criticalVoltageThreshold": 2.65,
+    "nominalVoltage": 3.3,
+    "batteryWindowMs": 300000,
+    "batteryDegradedMinCount": 3,
     "temperatureMaxThreshold": 60.0,
     "psiMaxThreshold": 120.0
   },

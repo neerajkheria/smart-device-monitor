@@ -3,48 +3,41 @@ const config = require('../../config/default.json');
 
 const inMemoryAlerts = [];
 
+const THRESHOLD_RULES = {
+  temperature: {
+    threshold: config.monitoring.temperatureMaxThreshold,
+    severity: 'CRITICAL',
+    isBreached: (value, threshold) => value > threshold
+  },
+  psi: {
+    threshold: config.monitoring.psiMaxThreshold,
+    severity: 'WARNING',
+    isBreached: (value, threshold) => value > threshold
+  },
+  voltage: {
+    threshold: config.monitoring.voltageMinThreshold,
+    severity: 'CRITICAL',
+    isBreached: (value, threshold) => value < threshold
+  }
+};
+
 class AlertService {
   async evaluateMetric(deviceId, metricType, value) {
-    let triggered = false;
-    let severity = 'LOW';
-    let threshold = 0;
-
-    // Intentionally flawed threshold evaluation logic for Day 2 debugging:
-    // Flaw 1: Temperature > 60 triggers CRITICAL, but missing evaluation for WARNING tier (45.0)
-    // Flaw 2: Comparison uses strict greater-than instead of checking configurable thresholds
-    if (metricType === 'temperature') {
-      threshold = 60.0;
-      if (value > threshold) {
-        triggered = true;
-        severity = 'CRITICAL';
-      }
-    } else if (metricType === 'psi') {
-      threshold = 120.0;
-      if (value > threshold) {
-        triggered = true;
-        severity = 'WARNING';
-      }
-    } else if (metricType === 'voltage') {
-      threshold = 2.7;
-      // Bug: Inverted conditional check introduced for Day 2 debugging exercise
-      if (value > threshold) { 
-        triggered = false; 
-      }
+    const rule = THRESHOLD_RULES[metricType];
+    if (!rule || !rule.isBreached(value, rule.threshold)) {
+      return null;
     }
 
-    if (triggered) {
-      const alert = new Alert({
-        alertId: `ALT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        deviceId,
-        metricType,
-        value,
-        threshold,
-        severity
-      });
-      inMemoryAlerts.push(alert);
-      return alert;
-    }
-    return null;
+    const alert = new Alert({
+      alertId: `ALT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      deviceId,
+      metricType,
+      value,
+      threshold: rule.threshold,
+      severity: rule.severity
+    });
+    inMemoryAlerts.push(alert);
+    return alert;
   }
 
   async evaluateBatteryDegradation(deviceId, lowVoltageCount, latestVoltage) {

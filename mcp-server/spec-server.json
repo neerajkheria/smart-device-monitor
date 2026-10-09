@@ -1,0 +1,13 @@
+{
+    "standards": {
+      "ISO-IEC-IoT-Thermal": {
+        "maxAllowedOperatingTemp": 65.0,
+        "failSafeShutdownDelaySec": 5,
+        "mandatoryAuditLogFields": ["deviceId", "sensorType", "peakTemp", "operatorId"]
+      },
+      "ISO-IEC-IoT-Battery": {
+        "minimumCriticalVoltage": 2.65,
+        "degradationAlertCycleCount": 3
+      }
+    }
+  }

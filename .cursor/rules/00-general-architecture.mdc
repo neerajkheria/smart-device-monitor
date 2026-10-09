@@ -1,0 +1,11 @@
+---
+description: Universal standards and architecture for smart-device-monitor
+alwaysApply: true
+---
+
+# Architecture Overview
+- Stack: Node.js, Express, ES6 / CommonJS modules matching project imports.
+- Layering: Strictly enforce Route -> Controller -> Service -> Model separation.
+- Do NOT place database calls or business logic inside route files or controllers.
+- Use explicit error classes inheriting from `AppError` (e.g., `NotFoundError`).
+- Never introduce new external libraries without checking `package.json` first.

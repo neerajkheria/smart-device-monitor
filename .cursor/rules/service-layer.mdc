@@ -1,0 +1,13 @@
+---
+description: Business logic, database queries, and throwing custom AppErrors in services
+alwaysApply: false
+---
+
+# Service Layer Rules
+- Locate all business logic inside `src/services/`.
+- Never access `req` or `res` objects directly within service files.
+- When an entity is not found, throw a custom `NotFoundError`:
+  ```javascript
+  if (!device) {
+    throw new NotFoundError(`Device with ID ${id} not found`);
+  }

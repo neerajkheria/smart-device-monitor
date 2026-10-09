@@ -1,0 +1,16 @@
+---
+description: Controller conventions and centralized error handling
+globs: ["src/controllers/**/*.js", "src/routes/**/*.js"]
+alwaysApply: false
+---
+
+# Controller Rules & Error Handling
+- **No Direct Error Responses:** Controllers MUST NOT send error responses directly via `res.status(4xx/5xx).json(...)`.
+- **Centralized Handler:** All controller methods MUST wrap async code in `try/catch` and forward errors to Express via `next(err)`.
+- **Catch-All Routing:** Unmatched routes hit `app.all('*')`, which constructs a `NotFoundError` and passes it to `next(err)`.
+- **Success Responses:** Send uniform JSON structures:
+  ```javascript
+  res.status(200).json({
+    status: 'success',
+    data: result
+  });

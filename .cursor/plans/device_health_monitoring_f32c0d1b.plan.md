@@ -1,0 +1,114 @@
+---
+name: Device Health Monitoring
+overview: Add a 60-second in-process health monitor that reads HAL voltage, updates a rolling battery health score on each device, and emits a deduplicated BATTERY_DEGRADED alert when low voltage repeats more than three times inside five minutes.
+todos:
+  - id: config
+    content: Add 60s interval, 5-minute window, and battery threshold keys to config/default.json
+    status: pending
+  - id: health-score
+    content: Add rolling voltage health score and windowed history pruning on deviceService
+    status: pending
+  - id: battery-alert
+    content: Add alertService.evaluateBatteryDegradation with count > 3 and unacknowledged dedupe
+    status: pending
+  - id: monitor
+    content: Add healthMonitorService and start/stop it from server.js on a 60s interval
+    status: pending
+  - id: tests
+    content: Add unit tests for score, window, alert threshold, dedupe, and scheduler; run the full Jest suite
+    status: pending
+isProject: false
+---
+
+# Device Health Monitoring
+
+`.cursor/rules/architecture.mdc` is not in the repo. Compliance below is against [`.cursor/rules/00-general-architecture.mdc`](.cursor/rules/00-general-architecture.mdc), [`.cursor/rules/service-layer.mdc`](.cursor/rules/service-layer.mdc), and [`.cursor/rules/controller-patterns.mdc`](.cursor/rules/controller-patterns.mdc). No new HTTP route or controller. No new npm dependency (`setInterval` only; `package.json` already has Express, `uuid`, and Winston).
+
+## Behavior
+
+```mermaid
+flowchart LR
+  server[server.js] --> monitor[healthMonitorService]
+  monitor -->|"every 60s"| deviceSvc[deviceService.recordHealthSample]
+  deviceSvc --> hal[HalSimulator.readTelemetry]
+  deviceSvc --> device[Device.voltageHistory and healthScore]
+  deviceSvc --> alerts[alertService.evaluateBatteryDegradation]
+  alerts --> store[inMemoryAlerts]
+```
+
+- On process start, poll every registered device every 60 seconds. `GET /api/v1/devices/:id/telemetry` keeps working and shares the same voltage/health helper so a manual read updates the score too.
+- The scheduler must not call the existing `pollTelemetry` temperature and PSI evaluation. Thermal readings already land above 60 often; reusing that path would emit CRITICAL alerts on every tick.
+- Leave the inverted voltage branch in `evaluateMetric` unchanged. Battery degradation is a separate method.
+
+Health score for one sample, clamped to 0–100:
+
+- `score = ((voltage - 2.7) / (3.3 - 2.7)) * 100`
+- 3.3 V (HAL nominal) is 100. 2.7 V is 0. Below 2.7 stays 0. Above 3.3 stays 100.
+- `device.healthScore` is the integer average of those scores for samples whose timestamp is inside the last 5 minutes.
+
+`BATTERY_DEGRADED` fires only when the count of samples with `voltage < 2.7` in that same 5-minute window is **greater than 3** (four or more). At a 60-second interval the window holds at most five samples, so the condition is reachable. Severity is `WARNING`. If that device already has an unacknowledged `BATTERY_DEGRADED` alert, do not emit another one.
+
+`HalSimulator.readTelemetry` stays as it is. Its voltage band is about 3.2–3.4 V, so a live process will not cross 2.7 V. Tests inject low voltage by mocking `readTelemetry`.
+
+## 1. Files
+
+Modify:
+
+- [`config/default.json`](config/default.json) — set `monitoring.telemetryIntervalMs` to `60000`. Add `batteryWindowMs: 300000`, `batteryDegradedMinCount: 3` (trigger when count is strictly greater), `nominalVoltage: 3.3`. Reuse existing `voltageMinThreshold: 2.7`.
+- [`src/models/Device.js`](src/models/Device.js) — keep `healthScore` and `voltageHistory`; document that the score is computed, not a constant 100.
+- [`src/models/Alert.js`](src/models/Alert.js) — allow `metricType` `BATTERY_DEGRADED` and store how many low samples tripped it.
+- [`src/services/deviceService.js`](src/services/deviceService.js) — shared sample ingestion, rolling score, window prune. `pollTelemetry` appends voltage through that helper and still calls `evaluateMetric` for temperature, PSI, and voltage.
+- [`src/services/alertService.js`](src/services/alertService.js) — `evaluateBatteryDegradation`.
+- [`src/server.js`](src/server.js) — start the monitor after `listen`, `stop` it inside the existing `SIGTERM` handler before `server.close`.
+- [`tests/unit/deviceService.test.js`](tests/unit/deviceService.test.js) and [`tests/unit/alertService.test.js`](tests/unit/alertService.test.js).
+
+Create:
+
+- `src/services/healthMonitorService.js` — `start(intervalMs)`, `stop()`, `tick()`. `tick` lists devices, calls `recordHealthSample` per device, and logs a per-device failure without aborting the loop. An `inFlight` flag skips a tick that is still running.
+- `tests/unit/healthMonitorService.test.js`.
+
+Do not change [`src/services/halSimulator.js`](src/services/halSimulator.js), routes, or controllers. Do not start the timer from [`src/app.js`](src/app.js); Jest loads the app, not the server.
+
+## 2. Model changes
+
+`Device` (fields already present; behavior changes):
+
+- `healthScore`: integer 0–100, recomputed after each sample. Constructor default stays 100 until the first sample.
+- `voltageHistory`: keep `{ voltage, timestamp }`. Drop entries older than 5 minutes. Also cap length (300) so a tight HTTP poll loop cannot grow the array without bound. The current hard cap of 20 is too small if telemetry is also requested faster than 60 seconds, because it can evict the 5-minute window.
+
+`Alert`:
+
+- `metricType`: `'BATTERY_DEGRADED'` for this path. `value` is the latest voltage. `threshold` is `2.7`. `severity` is `'WARNING'`.
+- New `occurrenceCount`: number of sub-2.7 V samples inside the window that caused the alert.
+- Existing `acknowledged` is the dedupe key. No change to `getAlerts` filters.
+
+## 3. Architectural compliance
+
+- **Passes layering.** Timer ownership and threshold math live in services. [`src/server.js`](src/server.js) only starts and stops the monitor. Models stay data holders.
+- **Passes service rules.** No `req` or `res`. A missing device on the existing HTTP poll still throws `NotFoundError`. A background tick catches that per device and logs it.
+- **Controller rules are unchanged.** No new handler, so no new `res.status` error path. Existing controllers already use `try/catch` and `next(err)`.
+- **No new library.** Intervals and `Date` only.
+- **Gap.** The review template cites `.cursor/rules/architecture.mdc`, which is absent. Treat `00-general-architecture.mdc` as that standard. Do not add the missing rule file unless asked.
+- **Intentional non-fix.** The voltage branch in `evaluateMetric` (`value > 2.7` forces `triggered = false`) stays. Battery health does not go through it.
+
+## 4. Implementation order and checkpoints
+
+1. Config keys in `default.json`. Checkpoint: JSON parses; existing tests still pass (`npm test`).
+2. Pure score helper on `deviceService` (nominal, threshold, midpoint 3.0 V equals 50, clamp). Checkpoint: new unit cases only.
+3. `recordHealthSample`: read HAL, append sample, prune by age and cap, set `healthScore`. Point `pollTelemetry` voltage history at this helper. Checkpoint: existing voltage-history test still sees one sample; a 5-minute-old sample is excluded from the average.
+4. `alertService.evaluateBatteryDegradation`. Checkpoint: count 3 returns null; count 4 pushes one `BATTERY_DEGRADED` alert; a second call with an unacknowledged alert returns null; acknowledge then allows a new alert. Existing temperature and PSI tests still pass.
+5. Call the alert method from `recordHealthSample` with the in-window low-voltage count. Checkpoint: four mocked readings under 2.7 V inside five minutes create one alert and a health score of 0.
+6. `healthMonitorService` plus `server.js` start/stop. Checkpoint: fake timers, two devices, one `readTelemetry` each per tick; `stop` clears the interval; a throwing device does not block the other; Jest exits with no open handle because tests never `require` `src/server.js`.
+7. Full `npm test` as the regression gate.
+
+## 5. Risks and regression tests
+
+- **Alert flood.** Without dedupe, a degraded device alerts every 60 seconds. Test the unacknowledged suppression.
+- **Temperature and PSI side effects.** Scheduler must not call `pollTelemetry`. Test that a tick with a hot thermal payload does not call `evaluateMetric`.
+- **Simulator never undervolts.** Demo traffic will sit near health 100 and never emit `BATTERY_DEGRADED`. Document that; cover the branch only with a mock.
+- **Restart wipes memory.** Maps are process-local. After restart the window is empty and four new low samples are required again.
+- **Overlapping ticks and shutdown.** Guard with `inFlight`. `SIGTERM` must `stop()` then `server.close`, or the interval can keep the process alive.
+- **History cap vs. window.** Replacing the cap of 20 with time-based prune plus a high safety cap. Regression: `pollTelemetry` still records the latest voltage and still returns the HAL payload (`voltage`, and `psi` for valves).
+- **Score change is visible.** `GET /api/v1/devices/:id` will show a moving `healthScore` instead of a permanent 100. Existing register test expects initial `healthScore === 100` before any sample; keep that.
+- **Do not assert on the broken voltage metric path** except to confirm `evaluateMetric('voltage', value)` behavior is unchanged.
+- Required tests: score boundaries and rolling average; window excludes samples older than 5 minutes; count `=== 3` does not alert and count `=== 4` does; dedupe until acknowledge; monitor tick isolation and `stop`; full Jest suite including [`tests/integrations/deviceApi.test.js`](tests/integrations/deviceApi.test.js).

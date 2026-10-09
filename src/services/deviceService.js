@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const Device = require('../models/Device');
 const HalSimulator = require('./halSimulator');
 const alertService = require('./alertService');
+const incidentService = require('./incidentService');
 const logger = require('../common/logger');
 const { NotFoundError } = require('../common/errors');
 const config = require('../../config/default.json');
@@ -156,7 +157,60 @@ class DeviceService {
       telemetry.voltage
     );
 
+    await this._escalateCriticalVoltage(device, telemetry);
+
     return healthScore;
+  }
+
+  /**
+   * Voltage strictly below criticalVoltageThreshold opens one P1 incident,
+   * moves the device to CRITICAL, and writes a structured audit event.
+   * Incident creation runs before the status change so a store failure
+   * leaves the device ACTIVE. An audit-log failure does not roll that back.
+   */
+  async _escalateCriticalVoltage(device, telemetry) {
+    const voltage = telemetry && telemetry.voltage;
+    const threshold = config.monitoring.criticalVoltageThreshold;
+    if (!Number.isFinite(voltage) || voltage >= threshold) {
+      return;
+    }
+
+    const incidents = await incidentService.listIncidents();
+    const openP1 = incidents.find(
+      (incident) =>
+        incident.deviceId === device.id &&
+        incident.severity === 'P1' &&
+        incident.status === 'OPEN'
+    );
+    if (openP1) {
+      if (device.status !== 'CRITICAL') {
+        await this.updateStatus(device.id, 'CRITICAL');
+      }
+      return;
+    }
+
+    const incident = await incidentService.createIncident({
+      deviceId: device.id,
+      severity: 'P1',
+      summary: `Voltage ${voltage}V is below the ${threshold}V emergency threshold.`
+    });
+
+    await this.updateStatus(device.id, 'CRITICAL');
+
+    try {
+      logger.info('Emergency telemetry escalation', {
+        event: 'EMERGENCY_TELEMETRY_ESCALATION',
+        deviceId: device.id,
+        voltage,
+        threshold,
+        status: 'CRITICAL',
+        severity: 'P1',
+        incidentId: incident.incidentId
+      });
+    } catch (err) {
+      // The reading is already committed. A logger failure must not
+      // reject the poll or drop the P1 incident.
+    }
   }
 
   _voltageToScore(voltage) {
