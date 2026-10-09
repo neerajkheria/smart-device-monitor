@@ -12,6 +12,15 @@ function validateDevicePayload(req, res, next) {
   next();
 }
 
+function validateDeviceStatus(req, res, next) {
+  const { status } = req.body;
+  const allowed = ['ACTIVE', 'STANDBY', 'ERROR', 'MAINTENANCE'];
+  if (!status || !allowed.includes(status)) {
+    return next(new ValidationError(`Device status must be one of: ${allowed.join(', ')}.`));
+  }
+  next();
+}
+
 function validateIncidentStatus(req, res, next) {
   const { status } = req.body;
   const allowed = ['OPEN', 'INVESTIGATING', 'RESOLVED', 'CLOSED'];
@@ -23,5 +32,6 @@ function validateIncidentStatus(req, res, next) {
 
 module.exports = {
   validateDevicePayload,
+  validateDeviceStatus,
   validateIncidentStatus
 };

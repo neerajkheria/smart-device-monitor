@@ -1,6 +1,6 @@
 const express = require('express');
 const deviceController = require('../controllers/deviceController');
-const { validateDevicePayload } = require('../middleware/validateRequest');
+const { validateDevicePayload, validateDeviceStatus } = require('../middleware/validateRequest');
 
 const router = express.Router();
 
@@ -13,5 +13,11 @@ router.route('/:id')
 
 router.route('/:id/telemetry')
   .get(deviceController.getTelemetry);
+
+router.route('/:id/health')
+  .get(deviceController.getHealth);
+
+router.route('/:id/status')
+  .patch(validateDeviceStatus, deviceController.updateStatus);
 
 module.exports = router;

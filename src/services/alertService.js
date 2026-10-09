@@ -1,4 +1,5 @@
 const Alert = require('../models/Alert');
+const config = require('../../config/default.json');
 
 const inMemoryAlerts = [];
 
@@ -44,6 +45,36 @@ class AlertService {
       return alert;
     }
     return null;
+  }
+
+  async evaluateBatteryDegradation(deviceId, lowVoltageCount, latestVoltage) {
+    const minCount = config.monitoring.batteryDegradedMinCount;
+    const threshold = config.monitoring.voltageMinThreshold;
+
+    if (lowVoltageCount <= minCount) {
+      return null;
+    }
+
+    const openAlert = inMemoryAlerts.find((alert) => (
+      alert.deviceId === deviceId
+      && alert.metricType === 'BATTERY_DEGRADED'
+      && alert.acknowledged === false
+    ));
+    if (openAlert) {
+      return null;
+    }
+
+    const alert = new Alert({
+      alertId: `ALT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      deviceId,
+      metricType: 'BATTERY_DEGRADED',
+      value: latestVoltage,
+      threshold,
+      severity: 'WARNING',
+      occurrenceCount: lowVoltageCount
+    });
+    inMemoryAlerts.push(alert);
+    return alert;
   }
 
   async getAlerts(filter = {}) {
